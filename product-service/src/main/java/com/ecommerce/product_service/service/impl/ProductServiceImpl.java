@@ -13,9 +13,13 @@ import com.ecommerce.product_service.repository.ProductRepository;
 import com.ecommerce.product_service.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
+
 
 @Service
 @RequiredArgsConstructor
@@ -70,14 +74,60 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public List<ProductResponse> getAllProducts() {
+    public Page<ProductResponse> getAllProducts(
+            int page,
+            int size,
+            String sortBy,
+            String sortDir,
+            String search
+    ) {
 
-        log.debug("Fetching all active products");
+        log.debug(
+                "Fetching products - page: {}, size: {}, sortBy: {}, sortDir: {}, search: {}",
+                page,
+                size,
+                sortBy,
+                sortDir,
+                search
+        );
 
-        return productRepository.findAllByActiveTrue()
-                .stream()
-                .map(productMapper::toResponse)
-                .toList();
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page number cannot be negative"
+            );
+        }
+
+        if (size < 1 || size > 100) {
+            throw new IllegalArgumentException(
+                    "Page size must be between 1 and 100"
+            );
+        }
+
+        String validatedSortBy = validateSortBy(sortBy);
+        Sort.Direction direction = validateSortDirection(sortDir);
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(direction, validatedSortBy)
+        );
+
+        Page<Product> products;
+
+        if (search == null || search.trim().isEmpty()) {
+
+            products = productRepository.findAllByActiveTrue(pageable);
+
+        } else {
+
+            products = productRepository
+                    .findByActiveTrueAndNameContainingIgnoreCase(
+                            search.trim(),
+                            pageable
+                    );
+        }
+
+        return products.map(productMapper::toResponse);
     }
 
     @Override
@@ -159,5 +209,44 @@ public class ProductServiceImpl implements ProductService {
                             "Category not found with id: " + categoryId
                     );
                 });
+    }
+
+    private String validateSortBy(String sortBy) {
+
+        if (sortBy == null || sortBy.isBlank()) {
+            return "id";
+        }
+
+        return switch (sortBy.trim()) {
+            case "id",
+                 "name",
+                 "price",
+                 "stockQuantity",
+                 "createdAt",
+                 "updatedAt" -> sortBy.trim();
+
+            default -> throw new IllegalArgumentException(
+                    "Invalid sort field: " + sortBy
+            );
+        };
+    }
+
+    private Sort.Direction validateSortDirection(String sortDir) {
+
+        if (sortDir == null || sortDir.isBlank()) {
+            return Sort.Direction.ASC;
+        }
+
+        if ("asc".equalsIgnoreCase(sortDir.trim())) {
+            return Sort.Direction.ASC;
+        }
+
+        if ("desc".equalsIgnoreCase(sortDir.trim())) {
+            return Sort.Direction.DESC;
+        }
+
+        throw new IllegalArgumentException(
+                "Invalid sort direction: " + sortDir
+        );
     }
 }
